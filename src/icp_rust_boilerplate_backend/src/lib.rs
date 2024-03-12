@@ -3,24 +3,22 @@ extern crate serde;
 use candid::{Decode, Encode};
 use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemory};
 use ic_stable_structures::{BoundedStorable, Cell, DefaultMemoryImpl, StableBTreeMap, Storable};
-use std::{borrow::Cow, cell::RefCell};
+use std::{borrow::Cow, cell::RefCell, str::FromStr};
 
-// Define type aliases for memory management
+// Simplified the type alias for Memory and IdCell for consistency
 type Memory = VirtualMemory<DefaultMemoryImpl>;
 type IdCell = Cell<u64, Memory>;
 
-// Define the structure for a leave request
 #[derive(candid::CandidType, Serialize, Deserialize, Clone)]
 struct LeaveRequest {
     id: u64,
     employee_id: u64,
-    start_date: u64,
+    start_date: u64, // Consider changing these to a more appropriate type, e.g., `chrono::NaiveDate`
     end_date: u64,
     reason: String,
-    status: LeaveStatus, // Pending, Approved, Rejected
+    status: LeaveStatus,
 }
 
-// Define the possible statuses for a leave request
 #[derive(Debug, PartialEq, candid::CandidType, Deserialize, Serialize, Clone)]
 enum LeaveStatus {
     Pending,
@@ -28,7 +26,6 @@ enum LeaveStatus {
     Rejected,
 }
 
-// Define the structure for an employee
 #[derive(candid::CandidType, Serialize, Deserialize, Default, Clone)]
 struct Employee {
     id: u64,
@@ -38,41 +35,48 @@ struct Employee {
     remaining_leave_days: u32,
 }
 
-// Implement serialization and deserialization for LeaveRequest
 impl Storable for LeaveRequest {
-    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(self).unwrap())
+    fn to_bytes(&self) -> Cow<[u8]> {
+        Cow::Owned(Encode!(self).unwrap_or_else(|e| {
+            eprintln!("Serialization error: {}", e);
+            vec![]
+        }))
     }
 
-    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        Decode!(bytes.as_ref(), Self).unwrap()
+    fn from_bytes(bytes: Cow<[u8]>) -> Self {
+        Decode!(bytes.as_ref(), Self).unwrap_or_else(|e| {
+            eprintln!("Deserialization error: {}", e);
+            Default::default() // Implement or derive Default for a sensible default
+        })
     }
 }
 
-// Implement bounds for LeaveRequest serialization
 impl BoundedStorable for LeaveRequest {
     const MAX_SIZE: u32 = 1024;
     const IS_FIXED_SIZE: bool = false;
 }
 
-// Implement serialization and deserialization for Employee
 impl Storable for Employee {
-    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(self).unwrap())
+    fn to_bytes(&self) -> Cow<[u8]> {
+        Cow::Owned(Encode!(self).unwrap_or_else(|e| {
+            eprintln!("Serialization error: {}", e);
+            vec![]
+        }))
     }
 
-    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        Decode!(bytes.as_ref(), Self).unwrap()
+    fn from_bytes(bytes: Cow<[u8]>) -> Self {
+        Decode!(bytes.as_ref(), Self).unwrap_or_else(|e| {
+            eprintln!("Deserialization error: {}", e);
+            Default::default() // Implement or derive Default for a sensible default
+        })
     }
 }
 
-// Implement bounds for Employee serialization
 impl BoundedStorable for Employee {
     const MAX_SIZE: u32 = 1024;
     const IS_FIXED_SIZE: bool = false;
 }
 
-// Thread-local storage for memory management, ID counter, leave request storage, and employee storage
 thread_local! {
     static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = RefCell::new(
         MemoryManager::init(DefaultMemoryImpl::default())
@@ -94,13 +98,13 @@ thread_local! {
     ));
 }
 
-// Define the possible errors
 #[derive(candid::CandidType, Deserialize, Serialize)]
 enum Error {
     NotFound { msg: String },
     InvalidInput { msg: String },
+    SerializationError { msg: String },
+    DeserializationError { msg: String },
 }
-
 // Query to get a leave request by its ID
 #[ic_cdk::query]
 fn get_leave_request(request_id: u64) -> Result<LeaveRequest, Error> {
